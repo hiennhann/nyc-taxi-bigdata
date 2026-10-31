@@ -1,0 +1,38 @@
+# Raw source data (downloaded from NYC TLC)
+/data/raw/*
+!/data/raw/.gitkeep
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.venv/
+
+# Local runtime and temporary download files
+*.part
+*.log
+.env
+# Dataset
+data/
+*.parquet
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Environment secrets
+.env
+.env.local
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+tmp/
+temp/

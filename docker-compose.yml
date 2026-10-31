@@ -1,0 +1,89 @@
+name: nyc-taxi-bigdata
+
+services:
+  namenode:
+    image: apache/hadoop:3.4.3
+    hostname: namenode
+    user: "0:0"
+    env_file: config/hadoop.env
+    command: >-
+      bash -lc 'mkdir -p /hadoop/dfs/name; if [ "$(stat -c %u /hadoop/dfs/name)" != "1000" ]; then chown -R 1000:100 /hadoop/dfs/name; fi; if [ ! -f /hadoop/dfs/name/current/VERSION ]; then su -p hadoop -s /bin/bash -c "/opt/hadoop/bin/hdfs namenode -format -nonInteractive"; fi; exec su -p hadoop -s /bin/bash -c "exec /opt/hadoop/bin/hdfs namenode"'
+    ports:
+      - "${HDFS_NAMENODE_UI_PORT:-9870}:9870"
+    volumes:
+      - hdfs_namenode:/hadoop/dfs/name
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    networks: [taxi-net]
+    healthcheck:
+      test: ["CMD-SHELL", "hdfs dfsadmin -safemode get >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  datanode:
+    image: apache/hadoop:3.4.3
+    hostname: datanode
+    user: "0:0"
+    env_file: config/hadoop.env
+    command: >-
+      bash -lc 'mkdir -p /hadoop/dfs/data; if [ "$(stat -c %u /hadoop/dfs/data)" != "1000" ]; then chown -R 1000:100 /hadoop/dfs/data; fi; exec su -p hadoop -s /bin/bash -c "exec /opt/hadoop/bin/hdfs datanode"'
+    depends_on:
+      namenode:
+        condition: service_healthy
+    ports:
+      - "${HDFS_DATANODE_UI_PORT:-9864}:9864"
+    volumes:
+      - hdfs_datanode:/hadoop/dfs/data
+      - ./config/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml:ro
+      - ./config/hdfs-site.xml:/opt/hadoop/etc/hadoop/hdfs-site.xml:ro
+    networks: [taxi-net]
+
+  spark-master:
+    image: apache/spark:3.5.7-python3
+    hostname: spark-master
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
+    ports:
+      - "${SPARK_MASTER_UI_PORT:-8080}:8080"
+      - "4040:4040"
+    volumes:
+      - ./src:/opt/project/src:ro
+      - ./config:/opt/hadoop-conf:ro
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+      SPARK_NO_DAEMONIZE: "true"
+    networks: [taxi-net]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/spark-master/7077'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  spark-worker:
+    image: apache/spark:3.5.7-python3
+    hostname: spark-worker
+    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "--host", "spark-worker", "--port", "7078", "--webui-port", "8081", "--cores", "2", "--memory", "2g", "spark://spark-master:7077"]
+    depends_on:
+      spark-master:
+        condition: service_healthy
+      namenode:
+        condition: service_healthy
+    ports:
+      - "${SPARK_WORKER_UI_PORT:-8081}:8081"
+    volumes:
+      - ./src:/opt/project/src:ro
+      - ./config:/opt/hadoop-conf:ro
+    environment:
+      HADOOP_CONF_DIR: /opt/hadoop-conf
+      SPARK_NO_DAEMONIZE: "true"
+    networks: [taxi-net]
+
+networks:
+  taxi-net:
+    driver: bridge
+
+volumes:
+  hdfs_namenode:
+  hdfs_datanode:
